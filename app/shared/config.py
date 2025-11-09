@@ -6,13 +6,17 @@ load_dotenv()
 
 
 class Config:
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+    NEWS_API_KEY = os.getenv("NEWS_API_KEY")
+    ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
     @classmethod
     def validate(cls):
-        if not cls.GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY is required")
+        if not cls.DEEPSEEK_API_KEY:
+            raise ValueError("DEEPSEEK_API_KEY is required")
+        if not cls.NEWS_API_KEY:
+            raise ValueError("NEWS_API_KEY is required")
         return True
 
 
