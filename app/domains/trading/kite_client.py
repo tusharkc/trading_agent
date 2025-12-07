@@ -276,6 +276,48 @@ class KiteClient:
             logger.error(f"❌ Error fetching margins: {e}")
             raise
 
+    def get_available_capital(self) -> float:
+        """
+        Get available trading capital from account.
+        Returns available cash from equity margin.
+        Raises ValueError if capital cannot be fetched.
+        """
+        try:
+            margins = self.get_margins()
+            
+            # Kite API returns margins with equity and commodity sections
+            equity = margins.get("equity", {})
+            if not equity:
+                raise ValueError("No equity margin data found in account")
+            
+            available = equity.get("available", {})
+            if not available:
+                raise ValueError("No available margin data found in account")
+            
+            # Try to get available cash first
+            available_cash = available.get("cash")
+            if available_cash is not None:
+                capital = float(available_cash)
+                if capital <= 0:
+                    raise ValueError(f"Available capital is zero or negative: ₹{capital}")
+                return capital
+            
+            # Fallback to net equity if cash not available
+            net = equity.get("net")
+            if net is not None:
+                capital = float(net)
+                if capital <= 0:
+                    raise ValueError(f"Net equity is zero or negative: ₹{capital}")
+                logger.warning("⚠️  Using net equity instead of available cash")
+                return capital
+            
+            raise ValueError("Could not extract available capital from margins response")
+            
+        except ValueError:
+            raise  # Re-raise ValueError as-is
+        except Exception as e:
+            raise ValueError(f"Error fetching available capital: {e}") from e
+
     def get_holdings(self) -> List[Dict[str, Any]]:
         """Get long-term holdings."""
         try:

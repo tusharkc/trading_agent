@@ -15,9 +15,9 @@ def main():
             logger.info("⚠️  Trading is not enabled. Set TRADING_ENABLED=true in .env")
             return 1
 
-        # Initialize execution engine
+        # Initialize execution engine (will fetch capital from account automatically)
         logger.info("🚀 Starting Trading Execution Engine...")
-        engine = ExecutionEngine(initial_capital=100000.0)  # 1 lakh default
+        engine = ExecutionEngine(initial_capital=None)  # None = fetch from account
 
         # Start monitoring
         engine.start_monitoring()

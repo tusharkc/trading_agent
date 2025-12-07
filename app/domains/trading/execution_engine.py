@@ -30,20 +30,33 @@ IST = timezone("Asia/Kolkata")
 class ExecutionEngine:
     """Main execution engine coordinating all trading components."""
 
-    def __init__(self, initial_capital: float = 100000.0):
+    def __init__(self, initial_capital: Optional[float] = None):
         """
         Initialize execution engine.
         Args:
-            initial_capital: Initial trading capital in rupees
+            initial_capital: Optional initial capital (if provided, will override account balance).
+                            If None, will fetch from account automatically.
         """
-        self.initial_capital = initial_capital
-
-        # Initialize database
+        # Initialize database first
         init_db()
 
         # Initialize components
         logger.info("🔧 Initializing execution engine components...")
         self.kite_client = KiteClient()
+        
+        # Always fetch capital from account (or use provided override)
+        if initial_capital is not None:
+            self.initial_capital = initial_capital
+            logger.info(f"💰 Using provided capital override: ₹{self.initial_capital:,.2f}")
+        else:
+            logger.info("💰 Fetching available capital from Zerodha account...")
+            try:
+                self.initial_capital = self.kite_client.get_available_capital()
+                logger.info(f"✅ Fetched available capital from account: ₹{self.initial_capital:,.2f}")
+            except ValueError as e:
+                logger.error(f"❌ Failed to fetch capital from account: {e}")
+                logger.error("❌ Cannot start trading without valid account balance")
+                raise
         self.websocket_manager = WebSocketManager(self.kite_client)
         self.technical_analyzer = TechnicalAnalyzer()
         self.signal_generator = SignalGenerator()
