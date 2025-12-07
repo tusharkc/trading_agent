@@ -19,7 +19,7 @@ class TradingLogger:
 
         # File handler
         file_handler = logging.FileHandler(
-            f'logs/bot_{datetime.now().strftime("%Y%m%d")}.log'
+            f"logs/bot_{datetime.now().strftime('%Y%m%d')}.log"
         )
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
@@ -29,6 +29,9 @@ class TradingLogger:
 
     def error(self, msg):
         self.logger.error(msg)
+
+    def warning(self, msg):
+        self.logger.warning(msg)
 
 
 logger = TradingLogger()

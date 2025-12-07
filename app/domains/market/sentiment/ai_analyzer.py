@@ -1,12 +1,15 @@
 # app/domains/market/sentiment/ai_analyzer.py
+from datetime import datetime
 import json
 import re
+from typing import List
+
 from deepseek import DeepSeekAPI
-from datetime import datetime
+
+from app.domains.market.market_data_fetcher import MarketDataFetcher
+from app.domains.market.news_fetcher import NewsFetcher
 from app.shared.config import config
 from app.shared.logger import logger
-from app.domains.market.news_fetcher import NewsFetcher
-from app.domains.market.market_data_fetcher import MarketDataFetcher
 
 
 class AISentimentAnalyzer:
@@ -14,6 +17,148 @@ class AISentimentAnalyzer:
         self.model = DeepSeekAPI(api_key=config.DEEPSEEK_API_KEY)
         self.news_fetcher = NewsFetcher()
         self.market_data_fetcher = MarketDataFetcher()
+
+    def get_top_sectors(
+        self, prediction_result: dict, actual_market_sectors: List[str] = None
+    ) -> List[str]:
+        """
+        AI identifies top 3 sectors with strongest growth potential from actual market sectors.
+        Considers news momentum, technical strength, seasonal factors.
+
+        Args:
+            prediction_result: Market sentiment prediction
+            actual_market_sectors: List of actual sectors from market (if None, uses default list)
+        """
+        logger.info("🎯 AI analyzing sectors for stock selection...")
+        current_date = datetime.now().strftime("%Y-%m-%d")
+
+        # Reuse same data sources
+        global_news = self.news_fetcher.fetch_news(
+            "global economic news OR Federal Reserve OR inflation OR geopolitical OR corporate earnings OR oil prices",
+            days=7,
+        )
+        indian_market_news = self.news_fetcher.fetch_news(
+            "Indian stock market OR Nifty 50 OR Bank Nifty OR FII DII OR Indian economy",
+            days=7,
+        )
+
+        # Format news with sector focus
+        formatted_news = "\n".join(
+            [
+                f"- {article['title']}: {article['description']}"
+                for article in (global_news + indian_market_news)[:10]
+            ]
+        )
+
+        # Use actual market sectors if provided, otherwise use a general list
+        if actual_market_sectors and len(actual_market_sectors) > 0:
+            available_sectors_text = "\n".join(
+                [f"- {sector}" for sector in actual_market_sectors]
+            )
+            logger.info(
+                f"📊 Using {len(actual_market_sectors)} actual market sectors for AI selection"
+            )
+        else:
+            available_sectors_text = """- Technology/IT
+- Financial Services/Banking
+- Automobile
+- Pharmaceuticals/Healthcare
+- Energy/Oil & Gas
+- FMCG/Consumer Goods
+- Industrials/Capital Goods
+- Real Estate
+- Metals & Mining
+- Telecom"""
+            logger.info("📊 Using default sector list for AI selection")
+
+        prompt = f"""
+        CURRENT DATE: {current_date}
+        MARKET SENTIMENT: {prediction_result.get("sentiment")} ({prediction_result.get("confidence")}% confidence)
+        
+        TASK: Based on the market sentiment and recent news, identify the TOP 3 sectors 
+        from the actual market sectors below that have the strongest growth potential for today's trading.
+        
+        CONSIDER:
+        - News momentum (sectors mentioned positively in recent news)
+        - Technical strength (sectors showing positive trends)
+        - Seasonal factors (current month/quarter trends)
+        - Alignment with overall market sentiment
+        
+        RECENT NEWS:
+        {formatted_news if formatted_news else "No news found"}
+        
+        ACTUAL MARKET SECTORS (choose exactly 3 from these):
+        {available_sectors_text}
+        
+        RESPONSE FORMAT (STRICT JSON):
+        {{
+            "top_sectors": ["Sector1", "Sector2", "Sector3"],
+            "reasoning": {{
+                "Sector1": "reason for selection",
+                "Sector2": "reason for selection",
+                "Sector3": "reason for selection"
+            }},
+            "timestamp": "{current_date}"
+        }}
+        
+        IMPORTANT: Select sectors that EXACTLY match the names from the ACTUAL MARKET SECTORS list above.
+        Use the exact sector names as they appear in the list.
+        """
+
+        messages = [
+            {
+                "role": "system",
+                "content": "You are a sector analyst for Indian stock markets. Always respond with valid JSON. Use exact sector names from the provided list.",
+            },
+            {"role": "user", "content": prompt},
+        ]
+
+        try:
+            response = self.model.chat_completion(
+                messages=messages,
+                model="deepseek-chat",
+                temperature=0.2,
+                max_tokens=1000,
+            )
+
+            response_text = self._extract_response_text(response)
+            result = self._parse_sector_response(response_text)
+
+            top_sectors = result.get("top_sectors", [])
+            logger.info(f"✅ AI selected sectors: {', '.join(top_sectors)}")
+            return top_sectors
+
+        except Exception as e:
+            logger.error(f"❌ AI sector selection failed: {e}")
+            # If actual market sectors provided, return top 3, otherwise fallback
+            if actual_market_sectors and len(actual_market_sectors) >= 3:
+                logger.info(
+                    f"📊 Falling back to top 3 market sectors: {actual_market_sectors[:3]}"
+                )
+                return actual_market_sectors[:3]
+            return ["Technology", "Financial Services", "Automobile"]
+
+    def _parse_sector_response(self, response_text: str) -> dict:
+        """Parse sector selection response"""
+        try:
+            json_match = re.search(r"\{[\s\S]*\}", response_text)
+            if json_match:
+                json_str = (
+                    json_match.group().replace("```json", "").replace("```", "").strip()
+                )
+                result = json.loads(json_str)
+
+                # Validate
+                if "top_sectors" in result and isinstance(result["top_sectors"], list):
+                    if len(result["top_sectors"]) > 3:
+                        result["top_sectors"] = result["top_sectors"][:3]
+                    return result
+
+        except Exception as e:
+            logger.error(f"Error parsing sector response: {e}")
+
+        # Fallback
+        return {"top_sectors": ["Technology", "Financial Services", "Automobile"]}
 
     def get_market_prediction(self):
         """Get market prediction using DeepSeek"""
