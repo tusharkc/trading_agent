@@ -43,13 +43,17 @@ class OrderManager:
     ) -> Optional[str]:
         """Place a stop-loss order (SL-M)."""
         try:
+            # Round trigger price to tick size
+            tick_size = self.kite_client.get_tick_size(exchange, symbol)
+            rounded_trigger = self.kite_client.round_to_tick_size(trigger_price, tick_size)
+            
             order_id = self.kite_client.place_order(
                 exchange=exchange,
                 tradingsymbol=symbol,
                 transaction_type="SELL",
                 quantity=quantity,
                 order_type="SL-M",
-                trigger_price=trigger_price,
+                trigger_price=rounded_trigger,
             )
             return order_id
         except Exception as e:
@@ -61,13 +65,17 @@ class OrderManager:
     ) -> Optional[str]:
         """Place a limit order for take-profit."""
         try:
+            # Round price to tick size
+            tick_size = self.kite_client.get_tick_size(exchange, symbol)
+            rounded_price = self.kite_client.round_to_tick_size(price, tick_size)
+            
             order_id = self.kite_client.place_order(
                 exchange=exchange,
                 tradingsymbol=symbol,
                 transaction_type="SELL",
                 quantity=quantity,
                 order_type="LIMIT",
-                price=price,
+                price=rounded_price,
             )
             return order_id
         except Exception as e:

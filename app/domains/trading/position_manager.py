@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 from app.domains.trading.models.position import Position, PositionStatus
 from app.domains.trading.models.db import get_session
+from app.domains.trading.kite_client import KiteClient
 from app.shared.config import config
 from app.shared.logger import logger
 
@@ -12,9 +13,10 @@ from app.shared.logger import logger
 class PositionManager:
     """Position manager for tracking and managing stock positions."""
 
-    def __init__(self):
+    def __init__(self, kite_client: Optional[KiteClient] = None):
         """Initialize position manager."""
         self.session = get_session()
+        self.kite_client = kite_client
 
     def create_position(
         self,
@@ -117,13 +119,45 @@ class PositionManager:
         position_size_percent = config.POSITION_SIZE_PERCENT / 100.0
         return total_capital * position_size_percent
 
-    def calculate_stop_loss(self, entry_price: float, stop_loss_percent: float = 2.0) -> float:
-        """Calculate stop-loss price (default: 2% below entry)."""
-        return entry_price * (1 - stop_loss_percent / 100.0)
+    def calculate_stop_loss(
+        self, entry_price: float, stop_loss_percent: float = 2.0, 
+        exchange: str = "NSE", symbol: str = None
+    ) -> float:
+        """
+        Calculate stop-loss price (default: 2% below entry).
+        Rounds to tick size if symbol and kite_client are available.
+        """
+        sl_price = entry_price * (1 - stop_loss_percent / 100.0)
+        
+        # Round to tick size if kite_client is available
+        if self.kite_client and symbol:
+            try:
+                tick_size = self.kite_client.get_tick_size(exchange, symbol)
+                sl_price = self.kite_client.round_to_tick_size(sl_price, tick_size)
+            except Exception as e:
+                logger.warning(f"⚠️  Could not round stop-loss to tick size for {symbol}: {e}")
+        
+        return sl_price
 
-    def calculate_take_profit(self, entry_price: float, take_profit_percent: float = 4.0) -> float:
-        """Calculate take-profit price (default: 4% above entry)."""
-        return entry_price * (1 + take_profit_percent / 100.0)
+    def calculate_take_profit(
+        self, entry_price: float, take_profit_percent: float = 4.0,
+        exchange: str = "NSE", symbol: str = None
+    ) -> float:
+        """
+        Calculate take-profit price (default: 4% above entry).
+        Rounds to tick size if symbol and kite_client are available.
+        """
+        tp_price = entry_price * (1 + take_profit_percent / 100.0)
+        
+        # Round to tick size if kite_client is available
+        if self.kite_client and symbol:
+            try:
+                tick_size = self.kite_client.get_tick_size(exchange, symbol)
+                tp_price = self.kite_client.round_to_tick_size(tp_price, tick_size)
+            except Exception as e:
+                logger.warning(f"⚠️  Could not round take-profit to tick size for {symbol}: {e}")
+        
+        return tp_price
 
     def close_position(
         self, position_id: int, exit_price: float, exit_reason: str

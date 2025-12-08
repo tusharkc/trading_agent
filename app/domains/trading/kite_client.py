@@ -134,6 +134,50 @@ class KiteClient:
             logger.error(f"❌ Error fetching instrument token: {e}")
             return None
 
+    def get_tick_size(self, exchange: str, symbol: str) -> float:
+        """
+        Get tick size for an instrument.
+        Returns tick size or default 0.05 if not found.
+        """
+        try:
+            instruments = self.kite.instruments(exchange=exchange)
+            for instrument in instruments:
+                if instrument["tradingsymbol"] == symbol:
+                    tick_size = instrument.get("tick_size")
+                    if tick_size:
+                        return float(tick_size)
+            # Default tick size if not found (most NSE stocks use 0.05)
+            logger.warning(f"⚠️  Tick size not found for {symbol}, using default 0.05")
+            return 0.05
+        except Exception as e:
+            logger.error(f"❌ Error fetching tick size for {symbol}: {e}")
+            return 0.05  # Safe default
+
+    @staticmethod
+    def round_to_tick_size(price: float, tick_size: float) -> float:
+        """
+        Round price to nearest multiple of tick size.
+        Handles floating point precision issues.
+        """
+        if tick_size <= 0:
+            return price
+
+        # Calculate decimal places based on tick size
+        if tick_size >= 1:
+            decimal_places = 0
+        elif tick_size >= 0.1:
+            decimal_places = 1
+        elif tick_size >= 0.01:
+            decimal_places = 2
+        elif tick_size >= 0.001:
+            decimal_places = 3
+        else:
+            decimal_places = 4
+
+        rounded = round(price / tick_size) * tick_size
+        # Round again to handle floating point precision
+        return round(rounded, decimal_places)
+
     def get_instruments_list(self, exchange: str = "NSE") -> List[Dict[str, Any]]:
         """Get all instruments for an exchange."""
         try:
@@ -153,6 +197,7 @@ class KiteClient:
         price: Optional[float] = None,
         product: str = "MIS",
         validity: str = "DAY",
+        variety: str = "regular",
         disclosed_quantity: Optional[int] = None,
         trigger_price: Optional[float] = None,
         squareoff: Optional[float] = None,
@@ -163,9 +208,12 @@ class KiteClient:
         """
         Place an order.
         Returns order ID.
+        Args:
+            variety: Order variety - "regular", "amo", "bracket", "co"
         """
         try:
             order_params = {
+                "variety": variety,  # Required by KiteConnect API
                 "exchange": exchange,
                 "tradingsymbol": tradingsymbol,
                 "transaction_type": transaction_type,  # BUY or SELL
@@ -279,40 +327,52 @@ class KiteClient:
     def get_available_capital(self) -> float:
         """
         Get available trading capital from account.
-        Returns available cash from equity margin.
+        Returns available trading capital (intraday_payin or cash).
+        Prioritizes intraday_payin which includes margin for equity trading.
         Raises ValueError if capital cannot be fetched.
         """
         try:
             margins = self.get_margins()
-            
+
             # Kite API returns margins with equity and commodity sections
             equity = margins.get("equity", {})
             if not equity:
                 raise ValueError("No equity margin data found in account")
-            
+
             available = equity.get("available", {})
             if not available:
                 raise ValueError("No available margin data found in account")
-            
-            # Try to get available cash first
+
+            # Priority 1: Use intraday_payin (trading capital with margin/leverage)
+            # This is what shows as "Available" in Kite app for equity trading
+            intraday_payin = available.get("intraday_payin")
+            if intraday_payin is not None:
+                capital = float(intraday_payin)
+                if capital > 0:
+                    return capital
+
+            # Priority 2: Use available cash if intraday_payin not available
             available_cash = available.get("cash")
             if available_cash is not None:
                 capital = float(available_cash)
-                if capital <= 0:
-                    raise ValueError(f"Available capital is zero or negative: ₹{capital}")
-                return capital
-            
-            # Fallback to net equity if cash not available
+                if capital > 0:
+                    return capital
+
+            # Priority 3: Fallback to net equity if nothing else available
             net = equity.get("net")
             if net is not None:
                 capital = float(net)
                 if capital <= 0:
                     raise ValueError(f"Net equity is zero or negative: ₹{capital}")
-                logger.warning("⚠️  Using net equity instead of available cash")
+                logger.warning(
+                    "⚠️  Using net equity instead of available trading capital"
+                )
                 return capital
-            
-            raise ValueError("Could not extract available capital from margins response")
-            
+
+            raise ValueError(
+                "Could not extract available capital from margins response"
+            )
+
         except ValueError:
             raise  # Re-raise ValueError as-is
         except Exception as e:

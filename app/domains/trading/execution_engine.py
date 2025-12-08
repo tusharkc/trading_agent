@@ -60,7 +60,7 @@ class ExecutionEngine:
         self.websocket_manager = WebSocketManager(self.kite_client)
         self.technical_analyzer = TechnicalAnalyzer()
         self.signal_generator = SignalGenerator()
-        self.position_manager = PositionManager()
+        self.position_manager = PositionManager(kite_client=self.kite_client)
         self.order_manager = OrderManager(self.kite_client)
         self.risk_manager = RiskManager()
         self.watchlist_manager = WatchlistManager()
@@ -275,9 +275,13 @@ class ExecutionEngine:
                 logger.warning(f"⚠️  Invalid quantity for {stock_symbol}: {quantity}")
                 return
 
-            # Calculate stop-loss and take-profit
-            stop_loss = self.position_manager.calculate_stop_loss(current_price)
-            take_profit = self.position_manager.calculate_take_profit(current_price)
+            # Calculate stop-loss and take-profit (with tick size rounding)
+            stop_loss = self.position_manager.calculate_stop_loss(
+                current_price, exchange="NSE", symbol=stock_symbol
+            )
+            take_profit = self.position_manager.calculate_take_profit(
+                current_price, exchange="NSE", symbol=stock_symbol
+            )
 
             # Execute orders
             order_ids = self.order_manager.execute_entry(
