@@ -17,7 +17,7 @@ class BotOrchestrator:
     def __init__(self):
         self.trading_engine = None
         self.telegram_bot = None
-        self.telegram_thread = None
+        self.trading_thread = None
 
     def _ensure_directories(self):
         """Ensure all required directories exist"""
@@ -29,6 +29,19 @@ class BotOrchestrator:
         ]
         for directory in directories:
             directory.mkdir(parents=True, exist_ok=True)
+
+    def _start_trading_engine(self):
+        """Start trading engine in background thread"""
+        try:
+            if config.TRADING_ENABLED:
+                logger.info("💰 Starting Trading Engine in background...")
+                if self.trading_engine and not self.trading_engine.is_running:
+                    self.trading_engine.start_monitoring()
+                    logger.info("✅ Trading engine started")
+            else:
+                logger.info("⚠️  Trading is disabled. Set TRADING_ENABLED=true to enable trading.")
+        except Exception as e:
+            logger.error(f"❌ Error starting trading engine: {e}")
 
     def start(self):
         """Start both Telegram bot and Trading Engine"""
@@ -50,16 +63,16 @@ class BotOrchestrator:
             logger.info("🤖 Initializing Telegram Bot...")
             self.telegram_bot = TelegramBot(trading_engine=self.trading_engine)
 
-            # Run Telegram bot in separate thread
-            self.telegram_thread = threading.Thread(
-                target=self.telegram_bot.run,
-                daemon=True,
-                name="TelegramBot"
-            )
-            self.telegram_thread.start()
-            logger.info("✅ Telegram bot thread started")
+            # Start trading engine in background thread (if enabled)
+            if self.trading_engine:
+                self.trading_thread = threading.Thread(
+                    target=self._start_trading_engine,
+                    daemon=True,
+                    name="TradingEngine"
+                )
+                self.trading_thread.start()
 
-            # Send startup notification (with delay to ensure bot is ready)
+            # Send startup notification (with delay)
             def send_startup_notification():
                 time.sleep(2)  # Wait for bot to initialize
                 try:
@@ -79,18 +92,14 @@ class BotOrchestrator:
             startup_thread = threading.Thread(target=send_startup_notification, daemon=True)
             startup_thread.start()
 
-            # Keep main thread alive
-            try:
-                while True:
-                    time.sleep(1)
-                    # Check if Telegram thread is still alive
-                    if not self.telegram_thread.is_alive():
-                        logger.error("❌ Telegram bot thread died")
-                        break
-            except KeyboardInterrupt:
-                logger.info("\n🛑 Received interrupt signal")
-                self.stop()
+            # Run Telegram bot in MAIN THREAD (required for signal handlers)
+            # This is a blocking call - bot will run until stopped
+            logger.info("🤖 Starting Telegram bot (main thread)...")
+            self.telegram_bot.run()
 
+        except KeyboardInterrupt:
+            logger.info("\n🛑 Received interrupt signal")
+            self.stop()
         except Exception as e:
             logger.error(f"❌ Error in orchestrator: {e}")
             import traceback

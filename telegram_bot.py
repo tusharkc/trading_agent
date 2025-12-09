@@ -3,8 +3,10 @@ Telegram bot for controlling trading bot.
 """
 import os
 import asyncio
+import shlex
 from datetime import datetime, date
-from typing import Optional
+from typing import Optional, List
+from pathlib import Path
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, ContextTypes
 from app.shared.config import config
@@ -22,6 +24,7 @@ class TelegramBot:
         self.trading_engine = trading_engine
         self.application = None
         self.bot_instance = None
+        self.project_root = Path(__file__).resolve().parent
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
@@ -288,6 +291,81 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
             await self.bot_instance.send_message(chat_id=self.chat_id, text=message, parse_mode='Markdown')
         except Exception as e:
             logger.error(f"❌ Error sending Telegram notification: {e}")
+    
+    async def _run_subprocess(
+        self,
+        cmd: List[str],
+        description: str,
+        timeout: int = 300,
+    ) -> str:
+        """
+        Run a subprocess and return output (stdout/stderr).
+        Args:
+            cmd: Command list
+            description: Human-readable description
+            timeout: Max seconds to wait
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(self.project_root.parent),
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            except asyncio.TimeoutError:
+                proc.kill()
+                return f"❌ {description} timed out after {timeout}s"
+
+            output = stdout.decode().strip()
+            errors = stderr.decode().strip()
+
+            if proc.returncode != 0:
+                combined = (output + "\n" + errors).strip()
+                return f"❌ {description} failed (exit {proc.returncode}):\n{combined[-3500:]}"
+
+            combined = (output + ("\n" + errors if errors else "")).strip()
+            return f"✅ {description} completed:\n{combined[-3500:]}" if combined else f"✅ {description} completed."
+        except Exception as e:
+            logger.error(f"❌ Error running {description}: {e}")
+            return f"❌ Error running {description}: {e}"
+
+    async def run_analysis_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /run_analysis to execute main.py (analysis/watchlist generation)."""
+        if not self._is_authorized(update):
+            await update.message.reply_text("❌ Unauthorized access")
+            return
+
+        await update.message.reply_text("⏳ Running analysis (main.py)...")
+        result = await self._run_subprocess(
+            ["python", "main.py"],
+            "Analysis (main.py)",
+            timeout=600,
+        )
+        await update.message.reply_text(result[:3900])
+
+    async def backtest_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /backtest <YYYY-MM-DD> <STOCKS>"""
+        if not self._is_authorized(update):
+            await update.message.reply_text("❌ Unauthorized access")
+            return
+
+        parts = update.message.text.split(maxsplit=2)
+        if len(parts) < 3:
+            await update.message.reply_text("Usage: /backtest YYYY-MM-DD RELIANCE,TCS,INFY")
+            return
+
+        date_str = parts[1]
+        stocks = parts[2]
+
+        await update.message.reply_text(f"⏳ Running backtest for {date_str} on {stocks} ...")
+        result = await self._run_subprocess(
+            ["python", "simulate_trading_day.py", "--date", date_str, "--stocks", stocks],
+            f"Backtest {date_str}",
+            timeout=900,
+        )
+        await update.message.reply_text(result[:3900])
 
     def run(self):
         """Start Telegram bot"""
@@ -314,12 +392,15 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
             self.application.add_handler(CommandHandler("performance", self.performance_command))
             self.application.add_handler(CommandHandler("watchlist", self.watchlist_command))
             self.application.add_handler(CommandHandler("help", self.help_command))
+            self.application.add_handler(CommandHandler("run_analysis", self.run_analysis_command))
+            self.application.add_handler(CommandHandler("backtest", self.backtest_command))
             
             logger.info("🤖 Telegram bot started and ready to receive commands")
             print("✅ Telegram bot is running and ready!")
             
-            # Start bot (blocking call)
-            self.application.run_polling()
+            # Start bot (blocking call) - MUST be in main thread for signal handlers
+            # Use drop_pending_updates=True to avoid processing old messages
+            self.application.run_polling(drop_pending_updates=True)
         except Exception as e:
             logger.error(f"❌ Error running Telegram bot: {e}")
             print(f"ERROR: Telegram bot failed to start: {e}")
