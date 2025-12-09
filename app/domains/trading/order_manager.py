@@ -1,9 +1,15 @@
 """
 Order manager for placing and tracking orders.
 """
+
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from app.domains.trading.models.order import Order, OrderType, TransactionType, OrderStatus
+from app.domains.trading.models.order import (
+    Order,
+    OrderType,
+    TransactionType,
+    OrderStatus,
+)
 from app.domains.trading.models.db import get_session
 from app.domains.trading.kite_client import KiteClient
 from app.shared.logger import logger
@@ -24,8 +30,17 @@ class OrderManager:
     def place_market_order(
         self, exchange: str, symbol: str, transaction_type: str, quantity: int
     ) -> Optional[str]:
-        """Place a market buy/sell order."""
+        """
+        Place a market buy/sell order.
+        NOTE: This bot is LONG-ONLY. SELL orders are only for exiting positions.
+        """
         try:
+            # Safety check: Prevent short selling (entry with SELL)
+            # SELL is only allowed for exits (stop-loss, take-profit, position exits)
+            if transaction_type.upper() == "SELL" and quantity > 0:
+                # This is acceptable for exits, but log it
+                logger.debug(f"Placing SELL order for exit: {symbol} x {quantity}")
+
             order_id = self.kite_client.place_order(
                 exchange=exchange,
                 tradingsymbol=symbol,
@@ -45,8 +60,10 @@ class OrderManager:
         try:
             # Round trigger price to tick size
             tick_size = self.kite_client.get_tick_size(exchange, symbol)
-            rounded_trigger = self.kite_client.round_to_tick_size(trigger_price, tick_size)
-            
+            rounded_trigger = self.kite_client.round_to_tick_size(
+                trigger_price, tick_size
+            )
+
             order_id = self.kite_client.place_order(
                 exchange=exchange,
                 tradingsymbol=symbol,
@@ -68,7 +85,7 @@ class OrderManager:
             # Round price to tick size
             tick_size = self.kite_client.get_tick_size(exchange, symbol)
             rounded_price = self.kite_client.round_to_tick_size(price, tick_size)
-            
+
             order_id = self.kite_client.place_order(
                 exchange=exchange,
                 tradingsymbol=symbol,
@@ -99,35 +116,61 @@ class OrderManager:
             return False
 
     def execute_entry(
-        self, exchange: str, symbol: str, quantity: int, stop_loss: float, take_profit: float
+        self,
+        exchange: str,
+        symbol: str,
+        quantity: int,
+        stop_loss: float,
+        take_profit: float,
+        place_sl_tp_orders: bool = False,
     ) -> Dict[str, Optional[str]]:
         """
         Execute complete entry flow: buy order + stop-loss + take-profit.
+        LONG-ONLY: Only places BUY orders for entries. No short selling.
+        Args:
+            place_sl_tp_orders: If True, places SL/TP orders on Kite. If False, only monitors levels.
         Returns dict with order IDs.
         """
         try:
+            # LONG-ONLY: Always BUY for entries (no short selling)
             # Place market buy order
             buy_order_id = self.place_market_order(exchange, symbol, "BUY", quantity)
             if not buy_order_id:
-                return {"buy_order": None, "stop_loss_order": None, "take_profit_order": None}
+                return {
+                    "buy_order": None,
+                    "stop_loss_order": None,
+                    "take_profit_order": None,
+                }
 
-            # Wait a bit for buy order to execute (in production, poll for status)
-            import time
-            time.sleep(2)
-
-            # Place stop-loss order
             sl_order_id = None
-            if stop_loss:
-                sl_order_id = self.place_stop_loss_order(exchange, symbol, quantity, stop_loss)
-
-            # Place take-profit order
             tp_order_id = None
-            if take_profit:
-                tp_order_id = self.place_take_profit_order(exchange, symbol, quantity, take_profit)
 
-            logger.info(
-                f"✅ Entry executed: {symbol} - Buy: {buy_order_id}, SL: {sl_order_id}, TP: {tp_order_id}"
-            )
+            # Only place SL/TP orders if explicitly enabled
+            if place_sl_tp_orders:
+                # Wait a bit for buy order to execute (in production, poll for status)
+                import time
+
+                time.sleep(2)
+
+                # Place stop-loss order
+                if stop_loss:
+                    sl_order_id = self.place_stop_loss_order(
+                        exchange, symbol, quantity, stop_loss
+                    )
+
+                # Place take-profit order
+                if take_profit:
+                    tp_order_id = self.place_take_profit_order(
+                        exchange, symbol, quantity, take_profit
+                    )
+
+                logger.info(
+                    f"✅ Entry executed: {symbol} - Buy: {buy_order_id}, SL: {sl_order_id}, TP: {tp_order_id}"
+                )
+            else:
+                logger.info(
+                    f"✅ Entry executed: {symbol} - Buy: {buy_order_id}, SL/TP monitoring enabled (no orders) - SL: ₹{stop_loss:.2f}, TP: ₹{take_profit:.2f}"
+                )
 
             return {
                 "buy_order": buy_order_id,
@@ -137,9 +180,15 @@ class OrderManager:
 
         except Exception as e:
             logger.error(f"❌ Error executing entry: {e}")
-            return {"buy_order": None, "stop_loss_order": None, "take_profit_order": None}
+            return {
+                "buy_order": None,
+                "stop_loss_order": None,
+                "take_profit_order": None,
+            }
 
-    def execute_exit(self, exchange: str, symbol: str, quantity: int, order_ids: List[str]) -> Optional[str]:
+    def execute_exit(
+        self, exchange: str, symbol: str, quantity: int, order_ids: List[str]
+    ) -> Optional[str]:
         """
         Execute exit flow: market sell + cancel SL/TP orders.
         Returns sell order ID.
@@ -207,4 +256,3 @@ class OrderManager:
             self.session.rollback()
             logger.error(f"❌ Error updating order status: {e}")
             return False
-

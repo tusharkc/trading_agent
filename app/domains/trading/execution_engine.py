@@ -1,6 +1,7 @@
 """
 Execution engine for coordinating all trading components.
 """
+
 import time
 import signal
 import sys
@@ -43,16 +44,20 @@ class ExecutionEngine:
         # Initialize components
         logger.info("🔧 Initializing execution engine components...")
         self.kite_client = KiteClient()
-        
+
         # Always fetch capital from account (or use provided override)
         if initial_capital is not None:
             self.initial_capital = initial_capital
-            logger.info(f"💰 Using provided capital override: ₹{self.initial_capital:,.2f}")
+            logger.info(
+                f"💰 Using provided capital override: ₹{self.initial_capital:,.2f}"
+            )
         else:
             logger.info("💰 Fetching available capital from Zerodha account...")
             try:
                 self.initial_capital = self.kite_client.get_available_capital()
-                logger.info(f"✅ Fetched available capital from account: ₹{self.initial_capital:,.2f}")
+                logger.info(
+                    f"✅ Fetched available capital from account: ₹{self.initial_capital:,.2f}"
+                )
             except ValueError as e:
                 logger.error(f"❌ Failed to fetch capital from account: {e}")
                 logger.error("❌ Cannot start trading without valid account balance")
@@ -100,7 +105,9 @@ class ExecutionEngine:
                 return False
 
             self.watchlist = watchlist_data.get("watchlist", {})
-            logger.info(f"✅ Loaded watchlist: {sum(len(stocks) for stocks in self.watchlist.values())} stocks")
+            logger.info(
+                f"✅ Loaded watchlist: {sum(len(stocks) for stocks in self.watchlist.values())} stocks"
+            )
 
             # Get instrument tokens for all stocks
             self._initialize_instrument_tokens()
@@ -117,16 +124,22 @@ class ExecutionEngine:
             for sector, stocks in self.watchlist.items():
                 all_stocks.extend(stocks)
 
-            logger.info(f"🔍 Fetching instrument tokens for {len(all_stocks)} stocks...")
+            logger.info(
+                f"🔍 Fetching instrument tokens for {len(all_stocks)} stocks..."
+            )
 
             for stock_symbol in all_stocks:
-                instrument_token = self.kite_client.get_instrument_token("NSE", stock_symbol)
+                instrument_token = self.kite_client.get_instrument_token(
+                    "NSE", stock_symbol
+                )
                 if instrument_token:
                     self.stock_to_instrument_token[stock_symbol] = instrument_token
                     self.instrument_token_to_stock[instrument_token] = stock_symbol
                     logger.info(f"  ✅ {stock_symbol}: {instrument_token}")
                 else:
-                    logger.warning(f"  ⚠️  Could not find instrument token for {stock_symbol}")
+                    logger.warning(
+                        f"  ⚠️  Could not find instrument token for {stock_symbol}"
+                    )
 
         except Exception as e:
             logger.error(f"❌ Error initializing instrument tokens: {e}")
@@ -140,7 +153,10 @@ class ExecutionEngine:
             from_date = datetime.now() - timedelta(days=60)
             to_date = datetime.now()
 
-            for stock_symbol, instrument_token in self.stock_to_instrument_token.items():
+            for (
+                stock_symbol,
+                instrument_token,
+            ) in self.stock_to_instrument_token.items():
                 try:
                     logger.info(f"  📈 Fetching historical data for {stock_symbol}...")
                     historical_data = self.kite_client.get_historical_data(
@@ -180,7 +196,9 @@ class ExecutionEngine:
 
             # Keep only last 100 candles
             if len(self.historical_data_cache[stock_symbol]) > 100:
-                self.historical_data_cache[stock_symbol] = self.historical_data_cache[stock_symbol][-100:]
+                self.historical_data_cache[stock_symbol] = self.historical_data_cache[
+                    stock_symbol
+                ][-100:]
 
             # Prepare DataFrame for indicators
             df = self.technical_analyzer.prepare_dataframe_from_candles(
@@ -200,7 +218,7 @@ class ExecutionEngine:
                 # Check exit conditions for ALL positions of this stock
                 for position in positions:
                     self._check_exit_signals(stock_symbol, indicators, position)
-            
+
             # Always check entry conditions (as long as we haven't reached per-stock limit)
             self._check_entry_signals(stock_symbol, indicators)
 
@@ -211,10 +229,14 @@ class ExecutionEngine:
         """Check for entry signals."""
         try:
             # Check per-stock position limit (up to 6 positions per stock)
-            active_positions_for_stock = self.position_manager.get_positions_by_symbol(stock_symbol)
+            active_positions_for_stock = self.position_manager.get_positions_by_symbol(
+                stock_symbol
+            )
             max_positions_per_stock = 6
             if len(active_positions_for_stock) >= max_positions_per_stock:
-                logger.debug(f"  ⏳ Max positions ({max_positions_per_stock}) reached for {stock_symbol}")
+                logger.debug(
+                    f"  ⏳ Max positions ({max_positions_per_stock}) reached for {stock_symbol}"
+                )
                 return
 
             # Check if trading is allowed (overall portfolio limit)
@@ -230,7 +252,9 @@ class ExecutionEngine:
             entry_signal = self.signal_generator.generate_entry_signal(indicators)
 
             if entry_signal:
-                logger.info(f"🎯 Entry signal detected for {stock_symbol}: {entry_signal['reason']}")
+                logger.info(
+                    f"🎯 Entry signal detected for {stock_symbol}: {entry_signal['reason']}"
+                )
                 self._execute_entry(stock_symbol, indicators)
             else:
                 logger.debug(f"  ⏳ No entry signal for {stock_symbol}")
@@ -238,7 +262,9 @@ class ExecutionEngine:
         except Exception as e:
             logger.error(f"❌ Error checking entry signals: {e}")
 
-    def _check_exit_signals(self, stock_symbol: str, indicators: Dict[str, Any], position):
+    def _check_exit_signals(
+        self, stock_symbol: str, indicators: Dict[str, Any], position
+    ):
         """Check for exit signals."""
         try:
             exit_signal = self.signal_generator.generate_exit_signal(
@@ -260,7 +286,10 @@ class ExecutionEngine:
             logger.error(f"❌ Error checking exit signals: {e}")
 
     def _execute_entry(self, stock_symbol: str, indicators: Dict[str, Any]):
-        """Execute entry trade."""
+        """
+        Execute entry trade.
+        LONG-ONLY: Only buys stocks. No short selling allowed.
+        """
         try:
             current_price = indicators.get("ichimoku", {}).get("current_price")
             if not current_price:
@@ -268,7 +297,9 @@ class ExecutionEngine:
                 return
 
             # Calculate position size
-            position_size = self.position_manager.calculate_position_size(self.initial_capital)
+            position_size = self.position_manager.calculate_position_size(
+                self.initial_capital
+            )
             quantity = int(position_size / current_price)
 
             if quantity <= 0:
@@ -290,6 +321,7 @@ class ExecutionEngine:
                 quantity=quantity,
                 stop_loss=stop_loss,
                 take_profit=take_profit,
+                place_sl_tp_orders=config.PLACE_SL_TP_ORDERS,
             )
 
             if order_ids.get("buy_order"):
@@ -301,7 +333,12 @@ class ExecutionEngine:
                     stop_loss=stop_loss,
                     take_profit=take_profit,
                 )
-                logger.info(f"✅ Entry executed for {stock_symbol}")
+                if config.PLACE_SL_TP_ORDERS:
+                    logger.info(f"✅ Entry executed for {stock_symbol}")
+                else:
+                    logger.info(
+                        f"✅ Entry executed for {stock_symbol} - Monitoring SL: ₹{stop_loss:.2f}, TP: ₹{take_profit:.2f}"
+                    )
 
         except Exception as e:
             logger.error(f"❌ Error executing entry: {e}")
@@ -330,10 +367,16 @@ class ExecutionEngine:
             )
 
             # Close position
-            self.position_manager.close_position(position.id, current_price, exit_reason)
+            self.position_manager.close_position(
+                position.id, current_price, exit_reason
+            )
 
             # Update performance
-            pnl = position.pnl if hasattr(position, "pnl") else (current_price - position.entry_price) * position.quantity
+            pnl = (
+                position.pnl
+                if hasattr(position, "pnl")
+                else (current_price - position.entry_price) * position.quantity
+            )
             is_win = pnl > 0
 
             if not is_win:
@@ -358,7 +401,9 @@ class ExecutionEngine:
                 try:
                     self._execute_exit(position.stock_symbol, position, "EOD")
                 except Exception as e:
-                    logger.error(f"❌ Error closing position {position.stock_symbol}: {e}")
+                    logger.error(
+                        f"❌ Error closing position {position.stock_symbol}: {e}"
+                    )
 
             logger.info(f"✅ Closed {len(active_positions)} positions at end of day")
 
@@ -423,4 +468,3 @@ class ExecutionEngine:
 
         except Exception as e:
             logger.error(f"❌ Error stopping monitoring: {e}")
-

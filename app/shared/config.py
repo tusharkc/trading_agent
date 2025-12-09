@@ -23,6 +23,11 @@ class Config:
     TRADING_ENABLED = os.getenv("TRADING_ENABLED", "false").lower() == "true"
     MAX_POSITIONS = int(os.getenv("MAX_POSITIONS", "9"))
     POSITION_SIZE_PERCENT = float(os.getenv("POSITION_SIZE_PERCENT", "11.11"))
+    PLACE_SL_TP_ORDERS = os.getenv("PLACE_SL_TP_ORDERS", "false").lower() == "true"
+
+    # Telegram configuration
+    TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
     @classmethod
     def validate(cls):
