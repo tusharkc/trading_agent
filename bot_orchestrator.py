@@ -4,6 +4,7 @@ Orchestrator combining Telegram bot and Trading Engine.
 import asyncio
 import threading
 import time
+from pathlib import Path
 from telegram_bot import TelegramBot
 from app.domains.trading.execution_engine import ExecutionEngine
 from app.shared.config import config
@@ -18,9 +19,23 @@ class BotOrchestrator:
         self.telegram_bot = None
         self.telegram_thread = None
 
+    def _ensure_directories(self):
+        """Ensure all required directories exist"""
+        directories = [
+            Path("logs"),
+            Path("storage/watchlists"),
+            Path("storage/sentiment_data"),
+            Path("storage/simulations"),
+        ]
+        for directory in directories:
+            directory.mkdir(parents=True, exist_ok=True)
+
     def start(self):
         """Start both Telegram bot and Trading Engine"""
         try:
+            # Ensure all required directories exist before starting
+            self._ensure_directories()
+            
             logger.info("🚀 Starting Bot Orchestrator...")
 
             # Initialize trading engine (only if trading is enabled)

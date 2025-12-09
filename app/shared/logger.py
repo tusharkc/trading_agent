@@ -1,6 +1,8 @@
 import logging
 import sys
+import os
 from datetime import datetime
+from pathlib import Path
 
 
 class TradingLogger:
@@ -17,7 +19,10 @@ class TradingLogger:
         console_handler.setFormatter(formatter)
         self.logger.addHandler(console_handler)
 
-        # File handler
+        # File handler - create logs directory if it doesn't exist
+        logs_dir = Path("logs")
+        logs_dir.mkdir(exist_ok=True)
+        
         file_handler = logging.FileHandler(
             f"logs/bot_{datetime.now().strftime('%Y%m%d')}.log"
         )

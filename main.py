@@ -6,6 +6,13 @@ Trading Bot - AI Market Sentiment Prediction + Stock Selection
 
 import sys
 import os
+from pathlib import Path
+
+# Ensure required directories exist before importing logger
+Path("logs").mkdir(exist_ok=True)
+Path("storage/watchlists").mkdir(parents=True, exist_ok=True)
+Path("storage/sentiment_data").mkdir(parents=True, exist_ok=True)
+Path("storage/simulations").mkdir(parents=True, exist_ok=True)
 
 # Add app to Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), "app"))
