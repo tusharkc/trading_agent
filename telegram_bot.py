@@ -100,8 +100,9 @@ class TelegramBot:
         await update.message.reply_text(watchlist, parse_mode='Markdown')
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /help command"""
-        help_text = """
+        """Handle /help command - No authorization required"""
+        try:
+            help_text = """
 🤖 *Trading Bot Commands*
 
 /start - Start trading bot
@@ -112,8 +113,15 @@ class TelegramBot:
 /performance - Today's performance summary
 /watchlist - Show current watchlist
 /help - Show this help message
-        """
-        await update.message.reply_text(help_text, parse_mode='Markdown')
+            """
+            await update.message.reply_text(help_text.strip(), parse_mode='Markdown')
+            logger.info(f"Help command received from user {update.effective_user.id}")
+        except Exception as e:
+            logger.error(f"❌ Error handling help command: {e}")
+            try:
+                await update.message.reply_text("❌ Error processing help command. Please try again.")
+            except:
+                pass
 
     def _is_authorized(self, update: Update) -> bool:
         """Check if user is authorized"""
@@ -283,27 +291,39 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
 
     def run(self):
         """Start Telegram bot"""
-        if not self.bot_token:
-            logger.error("❌ TELEGRAM_BOT_TOKEN not set")
-            return
-        
-        if not self.chat_id:
-            logger.error("❌ TELEGRAM_CHAT_ID not set")
-            return
+        try:
+            if not self.bot_token:
+                logger.error("❌ TELEGRAM_BOT_TOKEN not set")
+                print("ERROR: TELEGRAM_BOT_TOKEN not set in environment variables")
+                return
+            
+            if not self.chat_id:
+                logger.error("❌ TELEGRAM_CHAT_ID not set")
+                print("ERROR: TELEGRAM_CHAT_ID not set in environment variables")
+                return
 
-        self.application = Application.builder().token(self.bot_token).build()
-        
-        # Register commands
-        self.application.add_handler(CommandHandler("start", self.start_command))
-        self.application.add_handler(CommandHandler("stop", self.stop_command))
-        self.application.add_handler(CommandHandler("status", self.status_command))
-        self.application.add_handler(CommandHandler("positions", self.positions_command))
-        self.application.add_handler(CommandHandler("balance", self.balance_command))
-        self.application.add_handler(CommandHandler("performance", self.performance_command))
-        self.application.add_handler(CommandHandler("watchlist", self.watchlist_command))
-        self.application.add_handler(CommandHandler("help", self.help_command))
-        
-        logger.info("🤖 Telegram bot started")
-        # Start bot (blocking call)
-        self.application.run_polling()
+            logger.info(f"🤖 Initializing Telegram bot with token: {self.bot_token[:10]}...")
+            self.application = Application.builder().token(self.bot_token).build()
+            
+            # Register commands
+            self.application.add_handler(CommandHandler("start", self.start_command))
+            self.application.add_handler(CommandHandler("stop", self.stop_command))
+            self.application.add_handler(CommandHandler("status", self.status_command))
+            self.application.add_handler(CommandHandler("positions", self.positions_command))
+            self.application.add_handler(CommandHandler("balance", self.balance_command))
+            self.application.add_handler(CommandHandler("performance", self.performance_command))
+            self.application.add_handler(CommandHandler("watchlist", self.watchlist_command))
+            self.application.add_handler(CommandHandler("help", self.help_command))
+            
+            logger.info("🤖 Telegram bot started and ready to receive commands")
+            print("✅ Telegram bot is running and ready!")
+            
+            # Start bot (blocking call)
+            self.application.run_polling()
+        except Exception as e:
+            logger.error(f"❌ Error running Telegram bot: {e}")
+            print(f"ERROR: Telegram bot failed to start: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 
