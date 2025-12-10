@@ -114,14 +114,33 @@ class TelegramBot:
             help_text = """
 🤖 *Trading Bot Commands*
 
-/start - Start trading bot
-/stop - Stop trading bot
-/status - Get current bot status
-/positions - List all active positions
-/balance - Check account balance
-/performance - Today's performance summary
-/watchlist - Show current watchlist
-/help - Show this help message
+*Core*
+/start – Start trading bot (and engine if not running)
+/stop – Stop trading bot
+/status – Bot status, positions count, capital, time
+/positions – Active positions with SL/TP and P&L
+/balance – Initial and available capital
+/performance – Today’s trade stats & P&L
+/watchlist – Current watchlist, sectors, sentiment
+/help – This help
+
+*Analysis & Backtest*
+/run_analysis – Run main.py analysis
+/backtest YYYY-MM-DD SYMBOL1,SYMBOL2 – Simulate given date/stocks
+
+*Trading Control & Runtime Config*
+/start_trading – Manually start engine
+/stop_trading – Manually stop engine
+/set_position_size <percent> – Runtime only
+/set_max_positions <int> – Runtime only
+
+*Data & Ops*
+/clear_data – Wipe DB/logs/watchlists/sentiment/simulations
+/logs – Tail latest bot log
+
+*Kite Token*
+/check_token – Validate current token
+/generate_kite_token <request_token> – Exchange request_token -> access_token (runtime only)
             """
             await update.message.reply_text(help_text.strip(), parse_mode="Markdown")
             logger.info(f"Help command received from user {update.effective_user.id}")
@@ -451,20 +470,22 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
         except Exception as e:
             await update.message.reply_text(f"❌ Error checking token: {e}")
 
-    async def set_kite_token_command(
+    async def generate_kite_token_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ):
-        """Set Kite access token at runtime (not persisted). Usage: /set_kite_token <token>"""
+        """Generate and set Kite access token from a request_token. Usage: /generate_kite_token <request_token>"""
         if not self._is_authorized(update):
             await update.message.reply_text("❌ Unauthorized access")
             return
 
         parts = update.message.text.split(maxsplit=1)
         if len(parts) != 2 or not parts[1].strip():
-            await update.message.reply_text("Usage: /set_kite_token <token>")
+            await update.message.reply_text(
+                "Usage: /generate_kite_token <request_token>"
+            )
             return
 
-        token = parts[1].strip()
+        request_token = parts[1].strip()
         if not self.trading_engine or not getattr(
             self.trading_engine, "kite_client", None
         ):
@@ -473,19 +494,13 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
 
         try:
             kc = self.trading_engine.kite_client
-            kc.access_token = token
-            kc.kite.set_access_token(token)
-            ok = kc.refresh_token()  # validate token by calling profile
-            if ok:
-                await update.message.reply_text(
-                    "✅ KITE_ACCESS_TOKEN updated and validated."
-                )
-            else:
-                await update.message.reply_text(
-                    "⚠️ Token set, but validation failed. Please re-check the token."
-                )
+            kc.generate_session(request_token)
+            await update.message.reply_text(
+                "✅ KITE_ACCESS_TOKEN generated and set for this session.\n"
+                "(Not persisted to env; update Railway env vars if you need it after restart.)"
+            )
         except Exception as e:
-            await update.message.reply_text(f"❌ Error updating token: {e}")
+            await update.message.reply_text(f"❌ Error generating token: {e}")
 
     async def start_trading_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -638,7 +653,7 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
                 CommandHandler("backtest", self.backtest_command)
             )
             self.application.add_handler(
-                CommandHandler("set_kite_token", self.set_kite_token_command)
+                CommandHandler("generate_kite_token", self.generate_kite_token_command)
             )
 
             logger.info("🤖 Telegram bot started and ready to receive commands")
