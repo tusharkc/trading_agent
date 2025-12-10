@@ -3,9 +3,11 @@ Telegram bot for controlling trading bot.
 """
 
 import asyncio
+import os
 from datetime import datetime, date
 from typing import List
 from pathlib import Path
+from urllib.parse import urlparse
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, ContextTypes
 from app.shared.config import config
@@ -604,8 +606,25 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
             print("✅ Telegram bot is running and ready!")
 
             # Start bot (blocking call) - MUST be in main thread for signal handlers
-            # Use drop_pending_updates=True to avoid processing old messages
-            self.application.run_polling(drop_pending_updates=True)
+            # If WEBHOOK_URL is set, use webhook; otherwise fall back to polling.
+            if config.WEBHOOK_URL:
+                parsed = urlparse(config.WEBHOOK_URL)
+                url_path = parsed.path.lstrip("/") or "telegram-webhook"
+                port = int(os.getenv("PORT", "8080"))
+                logger.info(
+                    f"🤖 Starting Telegram bot via webhook on port {port}, path /{url_path}"
+                )
+                self.application.run_webhook(
+                    listen="0.0.0.0",
+                    port=port,
+                    url_path=url_path,
+                    webhook_url=config.WEBHOOK_URL,
+                    secret_token=config.WEBHOOK_SECRET or None,
+                    drop_pending_updates=True,
+                )
+            else:
+                logger.info("🤖 Starting Telegram bot via polling...")
+                self.application.run_polling(drop_pending_updates=True)
         except Exception as e:
             logger.error(f"❌ Error running Telegram bot: {e}")
             print(f"ERROR: Telegram bot failed to start: {e}")
