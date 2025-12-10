@@ -451,6 +451,42 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
         except Exception as e:
             await update.message.reply_text(f"❌ Error checking token: {e}")
 
+    async def set_kite_token_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ):
+        """Set Kite access token at runtime (not persisted). Usage: /set_kite_token <token>"""
+        if not self._is_authorized(update):
+            await update.message.reply_text("❌ Unauthorized access")
+            return
+
+        parts = update.message.text.split(maxsplit=1)
+        if len(parts) != 2 or not parts[1].strip():
+            await update.message.reply_text("Usage: /set_kite_token <token>")
+            return
+
+        token = parts[1].strip()
+        if not self.trading_engine or not getattr(
+            self.trading_engine, "kite_client", None
+        ):
+            await update.message.reply_text("⚠️ Trading engine not initialized.")
+            return
+
+        try:
+            kc = self.trading_engine.kite_client
+            kc.access_token = token
+            kc.kite.set_access_token(token)
+            ok = kc.refresh_token()  # validate token by calling profile
+            if ok:
+                await update.message.reply_text(
+                    "✅ KITE_ACCESS_TOKEN updated and validated."
+                )
+            else:
+                await update.message.reply_text(
+                    "⚠️ Token set, but validation failed. Please re-check the token."
+                )
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error updating token: {e}")
+
     async def start_trading_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ):
@@ -600,6 +636,9 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
             )
             self.application.add_handler(
                 CommandHandler("backtest", self.backtest_command)
+            )
+            self.application.add_handler(
+                CommandHandler("set_kite_token", self.set_kite_token_command)
             )
 
             logger.info("🤖 Telegram bot started and ready to receive commands")
