@@ -319,7 +319,7 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
     async def _tail_logs(self, lines: int = 50) -> str:
         """Return tail of latest log file."""
         try:
-            log_dir = self.project_root.parent / "logs"
+            log_dir = self.project_root / "logs"
             if not log_dir.exists():
                 return "❌ No logs directory found."
             log_files = sorted(
@@ -350,7 +350,7 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
             cwd: Working directory (defaults to project root)
         """
         try:
-            workdir = cwd if cwd is not None else self.project_root.parent
+            workdir = cwd if cwd is not None else self.project_root
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -391,12 +391,12 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
             return
 
         await update.message.reply_text("⏳ Running analysis (main.py)...")
-        main_path = self.project_root.parent / "main.py"
+        main_path = self.project_root / "main.py"
         result = await self._run_subprocess(
             ["python", str(main_path)],
             "Analysis (main.py)",
             timeout=600,
-            cwd=self.project_root.parent,
+            cwd=self.project_root,
         )
         await update.message.reply_text(result[:3900])
 
@@ -421,12 +421,12 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
         await update.message.reply_text(
             f"⏳ Running backtest for {date_str} on {stocks} ..."
         )
-        sim_path = self.project_root.parent / "simulate_trading_day.py"
+        sim_path = self.project_root / "simulate_trading_day.py"
         result = await self._run_subprocess(
             ["python", str(sim_path), "--date", date_str, "--stocks", stocks],
             f"Backtest {date_str}",
             timeout=900,
-            cwd=self.project_root.parent,
+            cwd=self.project_root,
         )
         await update.message.reply_text(result[:3900])
 
@@ -543,12 +543,12 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
         await update.message.reply_text(
             "⚠️ Clearing data (DB, logs, watchlists, sentiment, simulations)..."
         )
-        clear_path = self.project_root.parent / "clear_all_data.py"
+        clear_path = self.project_root / "clear_all_data.py"
         result = await self._run_subprocess(
             ["python", str(clear_path)],
             "Clear all data",
             timeout=120,
-            cwd=self.project_root.parent,
+            cwd=self.project_root,
         )
         await update.message.reply_text(result[:3900])
 
