@@ -114,6 +114,25 @@ class PositionManager:
             logger.error(f"❌ Error fetching positions for {stock_symbol}: {e}")
             return []
 
+    def count_positions_today(self, stock_symbol: str) -> int:
+        """Count all positions (active + closed) created today for a specific stock."""
+        try:
+            from datetime import date, time
+            today = date.today()
+            today_start = datetime.combine(today, time.min)
+            count = (
+                self.session.query(Position)
+                .filter(
+                    Position.stock_symbol == stock_symbol,
+                    Position.created_at >= today_start,
+                )
+                .count()
+            )
+            return count
+        except Exception as e:
+            logger.error(f"❌ Error counting positions for {stock_symbol}: {e}")
+            return 0
+
     def calculate_position_size(self, total_capital: float) -> float:
         """Calculate position size based on capital allocation."""
         position_size_percent = config.POSITION_SIZE_PERCENT / 100.0

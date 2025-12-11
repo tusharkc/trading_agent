@@ -28,8 +28,6 @@ class Config:
     # Telegram configuration
     TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
     TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
-    WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
-    WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 
     @classmethod
     def validate(cls):

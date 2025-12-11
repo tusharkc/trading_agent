@@ -228,14 +228,26 @@ class ExecutionEngine:
     def _check_entry_signals(self, stock_symbol: str, indicators: Dict[str, Any]):
         """Check for entry signals."""
         try:
-            # Check per-stock position limit (up to 6 positions per stock)
+            # Check per-stock position limit (max 3 positions per stock, no re-entry after 3 for the day)
             active_positions_for_stock = self.position_manager.get_positions_by_symbol(
                 stock_symbol
             )
-            max_positions_per_stock = 6
+            max_positions_per_stock = 3
+
+            # Check if already have max active positions
             if len(active_positions_for_stock) >= max_positions_per_stock:
                 logger.debug(
-                    f"  ⏳ Max positions ({max_positions_per_stock}) reached for {stock_symbol}"
+                    f"  ⏳ Max active positions ({max_positions_per_stock}) reached for {stock_symbol}"
+                )
+                return
+
+            # Check total positions created today (including closed ones) - no re-entry after 3 for the day
+            total_positions_today = self.position_manager.count_positions_today(
+                stock_symbol
+            )
+            if total_positions_today >= max_positions_per_stock:
+                logger.debug(
+                    f"  ⏳ Max positions for today ({max_positions_per_stock}) already reached for {stock_symbol}. No re-entry allowed."
                 )
                 return
 
