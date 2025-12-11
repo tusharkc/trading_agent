@@ -3,11 +3,9 @@ Telegram bot for controlling trading bot.
 """
 
 import asyncio
-import os
 from datetime import datetime, date
 from typing import List
 from pathlib import Path
-from urllib.parse import urlparse
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, ContextTypes
 from app.shared.config import config
@@ -114,33 +112,14 @@ class TelegramBot:
             help_text = """
 🤖 *Trading Bot Commands*
 
-*Core*
-/start – Start trading bot (and engine if not running)
-/stop – Stop trading bot
-/status – Bot status, positions count, capital, time
-/positions – Active positions with SL/TP and P&L
-/balance – Initial and available capital
-/performance – Today’s trade stats & P&L
-/watchlist – Current watchlist, sectors, sentiment
-/help – This help
-
-*Analysis & Backtest*
-/run_analysis – Run main.py analysis
-/backtest YYYY-MM-DD SYMBOL1,SYMBOL2 – Simulate given date/stocks
-
-*Trading Control & Runtime Config*
-/start_trading – Manually start engine
-/stop_trading – Manually stop engine
-/set_position_size <percent> – Runtime only
-/set_max_positions <int> – Runtime only
-
-*Data & Ops*
-/clear_data – Wipe DB/logs/watchlists/sentiment/simulations
-/logs – Tail latest bot log
-
-*Kite Token*
-/check_token – Validate current token
-/generate_kite_token <request_token> – Exchange request_token -> access_token (runtime only)
+/start - Start trading bot
+/stop - Stop trading bot
+/status - Get current bot status
+/positions - List all active positions
+/balance - Check account balance
+/performance - Today's performance summary
+/watchlist - Show current watchlist
+/help - Show this help message
             """
             await update.message.reply_text(help_text.strip(), parse_mode="Markdown")
             logger.info(f"Help command received from user {update.effective_user.id}")
@@ -338,7 +317,7 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
     async def _tail_logs(self, lines: int = 50) -> str:
         """Return tail of latest log file."""
         try:
-            log_dir = self.project_root / "logs"
+            log_dir = self.project_root.parent / "logs"
             if not log_dir.exists():
                 return "❌ No logs directory found."
             log_files = sorted(
@@ -369,7 +348,7 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
             cwd: Working directory (defaults to project root)
         """
         try:
-            workdir = cwd if cwd is not None else self.project_root
+            workdir = cwd if cwd is not None else self.project_root.parent
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -410,12 +389,12 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
             return
 
         await update.message.reply_text("⏳ Running analysis (main.py)...")
-        main_path = self.project_root / "main.py"
+        main_path = self.project_root.parent / "main.py"
         result = await self._run_subprocess(
             ["python", str(main_path)],
             "Analysis (main.py)",
             timeout=600,
-            cwd=self.project_root,
+            cwd=self.project_root.parent,
         )
         await update.message.reply_text(result[:3900])
 
@@ -440,12 +419,12 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
         await update.message.reply_text(
             f"⏳ Running backtest for {date_str} on {stocks} ..."
         )
-        sim_path = self.project_root / "simulate_trading_day.py"
+        sim_path = self.project_root.parent / "simulate_trading_day.py"
         result = await self._run_subprocess(
             ["python", str(sim_path), "--date", date_str, "--stocks", stocks],
             f"Backtest {date_str}",
             timeout=900,
-            cwd=self.project_root,
+            cwd=self.project_root.parent,
         )
         await update.message.reply_text(result[:3900])
 
@@ -469,38 +448,6 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
                 )
         except Exception as e:
             await update.message.reply_text(f"❌ Error checking token: {e}")
-
-    async def generate_kite_token_command(
-        self, update: Update, context: ContextTypes.DEFAULT_TYPE
-    ):
-        """Generate and set Kite access token from a request_token. Usage: /generate_kite_token <request_token>"""
-        if not self._is_authorized(update):
-            await update.message.reply_text("❌ Unauthorized access")
-            return
-
-        parts = update.message.text.split(maxsplit=1)
-        if len(parts) != 2 or not parts[1].strip():
-            await update.message.reply_text(
-                "Usage: /generate_kite_token <request_token>"
-            )
-            return
-
-        request_token = parts[1].strip()
-        if not self.trading_engine or not getattr(
-            self.trading_engine, "kite_client", None
-        ):
-            await update.message.reply_text("⚠️ Trading engine not initialized.")
-            return
-
-        try:
-            kc = self.trading_engine.kite_client
-            kc.generate_session(request_token)
-            await update.message.reply_text(
-                "✅ KITE_ACCESS_TOKEN generated and set for this session.\n"
-                "(Not persisted to env; update Railway env vars if you need it after restart.)"
-            )
-        except Exception as e:
-            await update.message.reply_text(f"❌ Error generating token: {e}")
 
     async def start_trading_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -594,12 +541,12 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
         await update.message.reply_text(
             "⚠️ Clearing data (DB, logs, watchlists, sentiment, simulations)..."
         )
-        clear_path = self.project_root / "clear_all_data.py"
+        clear_path = self.project_root.parent / "clear_all_data.py"
         result = await self._run_subprocess(
             ["python", str(clear_path)],
             "Clear all data",
             timeout=120,
-            cwd=self.project_root,
+            cwd=self.project_root.parent,
         )
         await update.message.reply_text(result[:3900])
 
@@ -652,33 +599,13 @@ P&L: ₹{pnl:.2f} ({pnl_percent:+.2f}%)
             self.application.add_handler(
                 CommandHandler("backtest", self.backtest_command)
             )
-            self.application.add_handler(
-                CommandHandler("generate_kite_token", self.generate_kite_token_command)
-            )
 
             logger.info("🤖 Telegram bot started and ready to receive commands")
             print("✅ Telegram bot is running and ready!")
 
             # Start bot (blocking call) - MUST be in main thread for signal handlers
-            # If WEBHOOK_URL is set, use webhook; otherwise fall back to polling.
-            if config.WEBHOOK_URL:
-                parsed = urlparse(config.WEBHOOK_URL)
-                url_path = parsed.path.lstrip("/") or "telegram-webhook"
-                port = int(os.getenv("PORT", "8080"))
-                logger.info(
-                    f"🤖 Starting Telegram bot via webhook on port {port}, path /{url_path}"
-                )
-                self.application.run_webhook(
-                    listen="0.0.0.0",
-                    port=port,
-                    url_path=url_path,
-                    webhook_url=config.WEBHOOK_URL,
-                    secret_token=config.WEBHOOK_SECRET or None,
-                    drop_pending_updates=True,
-                )
-            else:
-                logger.info("🤖 Starting Telegram bot via polling...")
-                self.application.run_polling(drop_pending_updates=True)
+            # Use drop_pending_updates=True to avoid processing old messages
+            self.application.run_polling(drop_pending_updates=True)
         except Exception as e:
             logger.error(f"❌ Error running Telegram bot: {e}")
             print(f"ERROR: Telegram bot failed to start: {e}")
